@@ -8,8 +8,10 @@ This first version is intentionally **read-only**. It lets MCP clients use a run
 
 - Transport: MCP over stdio, newline-delimited JSON-RPC.
 - Implementation: Go, using `github.com/myceldb/mycel-go-sdk`.
-- Mutations: not exposed in this first version.
+- Read tools are always available after authentication.
+- Graph write tools are available only when write mode is enabled.
 - Admin tools: not exposed in this first version.
+- Local UX: `login`, `logout`, `configure`, `doctor`, and `serve` commands.
 
 ## Build
 
@@ -23,58 +25,88 @@ The repository workspace includes this module in `../go.work`, so local builds u
 
 ## Configure
 
-The server reads Mycel SDK environment variables:
+For local desktop use, prefer the built-in login/configuration commands so passwords do not need to be placed in an MCP client config file.
+
+```sh
+# Store a Mycel refresh token securely. On macOS this uses Keychain.
+bin/mycel-mcp login
+
+# Choose default space/domain IDs interactively.
+bin/mycel-mcp configure
+
+# Diagnose daemon connectivity, auth, and selected defaults.
+bin/mycel-mcp doctor
+
+# Optional: enable mutating graph tools.
+bin/mycel-mcp configure --enable-writes
+
+# Optional: disable mutating graph tools again.
+bin/mycel-mcp configure --disable-writes
+
+# Run the stdio MCP server. This is also the default when no command is supplied.
+bin/mycel-mcp serve
+```
+
+Non-secret local config is written to:
+
+```text
+~/.config/mycel-mcp/config.json
+```
+
+Set `MYCEL_MCP_CONFIG=/path/to/config.json` to use another path. Environment variables override local config when serving.
+
+The local config stores values such as daemon address, username, default space/domain, and max result limits. It does **not** store plaintext passwords. On macOS, `mycel-mcp login` stores the refresh token in Keychain under the `mycel-mcp` service. On other platforms, the current fallback is a `0600` credentials file beside the config file.
+
+The server also reads Mycel SDK environment variables:
 
 | Variable | Meaning |
 | --- | --- |
 | `MYCELD_GRPC_ADDR` | myceld gRPC address. Defaults to `127.0.0.1:9091`. |
-| `MYCEL_USERNAME` / `MYCEL_PASSWORD` | Optional principal login credentials. |
+| `MYCEL_USERNAME` / `MYCEL_PASSWORD` | Optional principal login credentials. Useful for disposable demos, but avoid for long-lived desktop config. |
 | `MYCEL_ACCESS_TOKEN` | Optional bearer access token. |
 | `MYCEL_REFRESH_TOKEN` | Optional durable refresh token. If supplied without an access token, `mycel-mcp` refreshes on first daemon use. |
 | `MYCELD_TLS`, `MYCELD_TLS_CA_FILE`, `MYCELD_TLS_SERVER_NAME`, `MYCELD_TLS_CLIENT_CERT_FILE`, `MYCELD_TLS_CLIENT_KEY_FILE` | TLS/mTLS settings supported by the Go SDK. |
 
-MCP-specific settings:
+MCP-specific environment overrides:
 
 | Variable | Meaning |
 | --- | --- |
+| `MYCEL_MCP_CONFIG` | Optional local config file path. |
 | `MYCEL_MCP_DEFAULT_SPACE_ID` | Default space for tools that need a space. |
 | `MYCEL_MCP_DEFAULT_DOMAIN_ID` | Default domain for tools that need a domain. |
 | `MYCEL_MCP_MAX_RESULTS` | Default and maximum page size for tool calls. Defaults to `25`, hard-capped at `200`. |
-| `MYCEL_MCP_WRITE_ENABLED` | Reserved for future write tools. Currently reported by `mycel_mcp_config` only. |
+| `MYCEL_MCP_WRITE_ENABLED` | Enable mutating graph tools when truthy. Equivalent to `mycel-mcp configure --enable-writes`. |
 | `MYCEL_MCP_ADMIN_ENABLED` | Reserved for future admin tools. Currently reported by `mycel_mcp_config` only. |
 
-For desktop MCP clients, prefer a least-privilege service principal or refresh token over placing a human password in client config.
-
 ## Example MCP client config
+
+After `mycel-mcp login` and `mycel-mcp configure`, Claude Desktop or another local MCP client only needs to start the server:
 
 ```json
 {
   "mcpServers": {
     "mycel": {
       "command": "/path/to/mycel-mcp/bin/mycel-mcp",
-      "env": {
-        "MYCELD_GRPC_ADDR": "127.0.0.1:9091",
-        "MYCEL_REFRESH_TOKEN": "<refresh-token>",
-        "MYCEL_MCP_DEFAULT_SPACE_ID": "<space-id>",
-        "MYCEL_MCP_DEFAULT_DOMAIN_ID": "<domain-id>",
-        "MYCEL_MCP_MAX_RESULTS": "25"
-      }
+      "args": ["serve"]
     }
   }
 }
 ```
 
-For quick local development you can use username/password instead:
+For quick disposable local development, environment credentials still work:
 
 ```json
 {
   "mcpServers": {
     "mycel": {
       "command": "/path/to/mycel-mcp/bin/mycel-mcp",
+      "args": ["serve"],
       "env": {
         "MYCELD_GRPC_ADDR": "127.0.0.1:9091",
         "MYCEL_USERNAME": "alice",
-        "MYCEL_PASSWORD": "secret"
+        "MYCEL_PASSWORD": "secret",
+        "MYCEL_MCP_DEFAULT_SPACE_ID": "<space-id>",
+        "MYCEL_MCP_DEFAULT_DOMAIN_ID": "<domain-id>"
       }
     }
   }
@@ -117,10 +149,53 @@ For quick local development you can use username/password instead:
 - `mycel_list_children`
 - `mycel_get_parent`
 
+### Graph writes
+
+These tools are listed only when write mode is enabled with `mycel-mcp configure --enable-writes` or `MYCEL_MCP_WRITE_ENABLED=true`:
+
+- `mycel_create_node`
+- `mycel_upsert_node`
+- `mycel_create_edge`
+
+Each write runs in a read-write transaction and returns the graph result plus commit metadata. Pass an optional non-secret `idempotency_key` for durable retry safety.
+
 ### Metadata catalog
 
 - `mycel_list_tags`
 - `mycel_list_property_names`
+
+## Three-node test cluster
+
+For local MCP testing against a real three-node Mycel raft cluster, use the helper script:
+
+```sh
+scripts/test-cluster.sh start
+```
+
+It builds a local Mycel image, starts the existing Mycel Docker Compose cluster fixture with three `myceld` nodes, exposes node A/B/C on `127.0.0.1:19091`, `127.0.0.1:19092`, and `127.0.0.1:19093`, and configures bootstrap admin credentials. The high ports avoid colliding with a normal local standalone daemon on `127.0.0.1:9091`.
+
+```text
+username: admin
+password: password
+```
+
+Useful commands:
+
+```sh
+scripts/test-cluster.sh status
+scripts/test-cluster.sh logs
+scripts/test-cluster.sh env
+scripts/test-cluster.sh stop
+```
+
+After the cluster is ready, you can log `mycel-mcp` into node A:
+
+```sh
+bin/mycel-mcp login --daemon-addr 127.0.0.1:19091 --username admin --password password
+bin/mycel-mcp doctor
+```
+
+The helper is destructive by default for its own Compose project and volumes. Set `MYCEL_TEST_RESET=false` to preserve existing test-cluster volumes. Set `MYCEL_TEST_ADMIN_PASSWORD` to override the default password.
 
 ## Smoke test
 

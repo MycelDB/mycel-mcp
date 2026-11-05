@@ -84,25 +84,26 @@ type app struct {
 	cfg      config
 	mycelCfg mycel.Config
 
+	configPath         string
+	localConfig        persistedConfig
+	store              credentialStore
+	credentialUsername string
+	storedRefreshToken string
+	persistCredentials bool
+
 	mu     sync.Mutex
 	client *mycel.Client
 }
 
 func newAppFromEnv() *app {
-	mycelCfg := mycel.ConfigFromEnv()
-	if strings.TrimSpace(mycelCfg.ClientName) == "" || mycelCfg.ClientName == "mycel-go-sdk" {
-		mycelCfg.ClientName = serverName
+	a, err := newAppFromEnvWithError()
+	if err != nil {
+		// Serving should still start so MCP clients can inspect tool metadata and
+		// receive actionable tool errors. doctor/login/configure report config-load
+		// failures directly.
+		return &app{cfg: loadConfigFromEnv(), mycelCfg: defaultMycelConfig()}
 	}
-	if strings.TrimSpace(mycelCfg.Platform) == "" || mycelCfg.Platform == "go" {
-		mycelCfg.Platform = "mcp"
-	}
-	if strings.TrimSpace(mycelCfg.DeviceLabel) == "" {
-		mycelCfg.DeviceLabel = serverName
-	}
-	if mycelCfg.CallTimeout <= 0 {
-		mycelCfg.CallTimeout = defaultCallTimeout
-	}
-	return &app{cfg: loadConfigFromEnv(), mycelCfg: mycelCfg}
+	return a
 }
 
 func (a *app) close() error {
@@ -134,9 +135,40 @@ func (a *app) mycelClient(ctx context.Context) (*mycel.Client, error) {
 			_ = client.Close()
 			return nil, err
 		}
+		if err := a.persistRefreshTokenLocked(client.RefreshToken()); err != nil {
+			_ = client.Close()
+			return nil, err
+		}
 	}
 	a.client = client
 	return a.client, nil
+}
+
+func (a *app) persistRefreshTokenLocked(token string) error {
+	if a == nil || !a.persistCredentials || a.store == nil || strings.TrimSpace(a.credentialUsername) == "" || strings.TrimSpace(token) == "" {
+		return nil
+	}
+	token = strings.TrimSpace(token)
+	if token == a.storedRefreshToken {
+		return nil
+	}
+	if err := a.store.Set(a.credentialUsername, token); err != nil {
+		return fmt.Errorf("persist rotated refresh token: %w", err)
+	}
+	a.storedRefreshToken = token
+	return nil
+}
+
+func (a *app) persistRefreshTokenIfRotated() error {
+	if a == nil || a.store == nil || strings.TrimSpace(a.credentialUsername) == "" {
+		return nil
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.client == nil {
+		return nil
+	}
+	return a.persistRefreshTokenLocked(a.client.RefreshToken())
 }
 
 func (a *app) effectiveSpaceID(value string) string {
@@ -384,6 +416,9 @@ func (s *server) callTool(ctx context.Context, params json.RawMessage) (any, *rp
 		return nil, &rpcError{Code: -32602, Message: "unknown tool: " + call.Name}
 	}
 	value, err := tool.Handler(ctx, call.Arguments)
+	if rotateErr := s.app.persistRefreshTokenIfRotated(); rotateErr != nil && err == nil {
+		err = rotateErr
+	}
 	if err != nil {
 		return map[string]any{
 			"content": []any{map[string]any{"type": "text", "text": err.Error()}},
@@ -432,6 +467,13 @@ func newTools(a *app) map[string]tool {
 		newListTagsTool(a),
 		newListPropertyNamesTool(a),
 		newGetLexicalIndexStatusTool(a),
+	}
+	if a.cfg.WriteEnabled {
+		tools = append(tools,
+			newCreateNodeTool(a),
+			newUpsertNodeTool(a),
+			newCreateEdgeTool(a),
+		)
 	}
 	out := make(map[string]tool, len(tools))
 	for _, t := range tools {
@@ -1348,6 +1390,17 @@ func resultText(value any) (string, error) {
 	if value == nil {
 		return "{}", nil
 	}
+	if writeResult, ok := value.(writeTransactionResult); ok {
+		jsonValue, err := writeResultJSON(writeResult)
+		if err != nil {
+			return "", err
+		}
+		data, err := json.MarshalIndent(jsonValue, "", "  ")
+		if err != nil {
+			return "", err
+		}
+		return string(data), nil
+	}
 	if msg, ok := value.(proto.Message); ok {
 		data, err := protojson.MarshalOptions{UseProtoNames: true, EmitUnpopulated: false, Multiline: true, Indent: "  "}.Marshal(msg)
 		if err != nil {
@@ -1438,9 +1491,7 @@ func paginationSchema(extra map[string]any) map[string]any {
 func main() {
 	log.SetOutput(os.Stderr)
 	log.SetFlags(0)
-	a := newAppFromEnv()
-	defer func() { _ = a.close() }()
-	if err := newServer(a).serve(os.Stdin, os.Stdout); err != nil {
+	if err := runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr); err != nil {
 		log.Printf("%s: %v", serverName, err)
 		os.Exit(1)
 	}
