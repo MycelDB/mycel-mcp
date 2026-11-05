@@ -1,0 +1,5 @@
+bin/
+mycel-mcp
+.DS_Store
+.env
+*.log
