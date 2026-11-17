@@ -21,6 +21,7 @@ import (
 	commonv1 "github.com/myceldb/mycel-go-sdk/gen/go/mycel/common/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -753,47 +754,57 @@ type searchPropertyFilterArg struct {
 
 func newSearchTool(a *app) tool {
 	type args struct {
-		SpaceID             string                    `json:"space_id,omitempty"`
-		DomainID            string                    `json:"domain_id,omitempty"`
-		Query               string                    `json:"query"`
-		Mode                string                    `json:"mode,omitempty"`
-		PageSize            int32                     `json:"page_size,omitempty"`
-		PageToken           string                    `json:"page_token,omitempty"`
-		IncludeDiagnostics  bool                      `json:"include_diagnostics,omitempty"`
-		AllowStale          bool                      `json:"allow_stale,omitempty"`
-		CandidateCount      int32                     `json:"candidate_count,omitempty"`
-		NodeLabels          []string                  `json:"node_labels,omitempty"`
-		NodeIDs             []string                  `json:"node_ids,omitempty"`
-		PropertyFilters     []searchPropertyFilterArg `json:"property_filters,omitempty"`
-		SemanticRuleID      string                    `json:"semantic_rule_id,omitempty"`
-		EmbeddingBindingKey string                    `json:"embedding_binding_key,omitempty"`
-		MinScore            *float64                  `json:"min_score,omitempty"`
-		LexicalWeight       float64                   `json:"lexical_weight,omitempty"`
-		SemanticWeight      float64                   `json:"semantic_weight,omitempty"`
-		RequireBoth         bool                      `json:"require_both,omitempty"`
+		SpaceID                  string                    `json:"space_id,omitempty"`
+		DomainID                 string                    `json:"domain_id,omitempty"`
+		Query                    string                    `json:"query"`
+		Mode                     string                    `json:"mode,omitempty"`
+		PageSize                 int32                     `json:"page_size,omitempty"`
+		PageToken                string                    `json:"page_token,omitempty"`
+		IncludeDiagnostics       bool                      `json:"include_diagnostics,omitempty"`
+		AllowStale               bool                      `json:"allow_stale,omitempty"`
+		CandidateCount           int32                     `json:"candidate_count,omitempty"`
+		NodeLabels               []string                  `json:"node_labels,omitempty"`
+		NodeIDs                  []string                  `json:"node_ids,omitempty"`
+		PropertyFilters          []searchPropertyFilterArg `json:"property_filters,omitempty"`
+		SemanticRuleID           string                    `json:"semantic_rule_id,omitempty"`
+		EmbeddingBindingKey      string                    `json:"embedding_binding_key,omitempty"`
+		MinScore                 *float64                  `json:"min_score,omitempty"`
+		LexicalWeight            float64                   `json:"lexical_weight,omitempty"`
+		SemanticWeight           float64                   `json:"semantic_weight,omitempty"`
+		RequireBoth              bool                      `json:"require_both,omitempty"`
+		SemanticConsistency      string                    `json:"semantic_consistency,omitempty"`
+		SemanticStaleBehavior    string                    `json:"semantic_stale_behavior,omitempty"`
+		MinRequiredGraphRevision int64                     `json:"min_required_graph_revision,omitempty"`
+		MaxSemanticRevisionLag   int64                     `json:"max_semantic_revision_lag,omitempty"`
+		MaxSemanticStaleness     string                    `json:"max_semantic_staleness,omitempty"`
 	}
 	return tool{
 		Name:        "mycel_search",
 		Description: "Run lexical or hybrid search over graph content in a Mycel space/domain. For direct semantic-only search, use mycel_semantic_search.",
 		InputSchema: objectSchema(map[string]any{
-			"space_id":              stringSchema("Space ID. Defaults to MYCEL_MCP_DEFAULT_SPACE_ID when omitted."),
-			"domain_id":             stringSchema("Domain ID. Defaults to MYCEL_MCP_DEFAULT_DOMAIN_ID when omitted."),
-			"query":                 stringSchema("Lexical query string, or shared lexical/semantic text for hybrid mode."),
-			"mode":                  enumStringSchema([]string{"lexical", "hybrid"}, "Search mode. Defaults to lexical."),
-			"page_size":             intSchema("Maximum results to return. Capped by MYCEL_MCP_MAX_RESULTS."),
-			"page_token":            stringSchema("Opaque continuation token from a prior search."),
-			"include_diagnostics":   boolSchema("Include safe query diagnostics when available."),
-			"allow_stale":           boolSchema("Allow stale lexical index results."),
-			"candidate_count":       intSchema("Candidate count for lexical/semantic retrieval before fusion."),
-			"node_labels":           arrayStringSchema("All listed node labels must be present."),
-			"node_ids":              arrayStringSchema("Restrict candidates to these node IDs."),
-			"property_filters":      propertyFiltersSchema(),
-			"semantic_rule_id":      stringSchema("Hybrid mode: semantic rule ID to search."),
-			"embedding_binding_key": stringSchema("Hybrid mode: embedding binding key. Requires semantic_rule_id when set."),
-			"min_score":             numberSchema("Hybrid mode: optional semantic minimum score."),
-			"lexical_weight":        numberSchema("Hybrid mode lexical weight. Defaults to daemon policy."),
-			"semantic_weight":       numberSchema("Hybrid mode semantic weight. Defaults to daemon policy."),
-			"require_both":          boolSchema("Hybrid mode: require both lexical and semantic matches."),
+			"space_id":                    stringSchema("Space ID. Defaults to MYCEL_MCP_DEFAULT_SPACE_ID when omitted."),
+			"domain_id":                   stringSchema("Domain ID. Defaults to MYCEL_MCP_DEFAULT_DOMAIN_ID when omitted."),
+			"query":                       stringSchema("Lexical query string, or shared lexical/semantic text for hybrid mode."),
+			"mode":                        enumStringSchema([]string{"lexical", "hybrid"}, "Search mode. Defaults to lexical."),
+			"page_size":                   intSchema("Maximum results to return. Capped by MYCEL_MCP_MAX_RESULTS."),
+			"page_token":                  stringSchema("Opaque continuation token from a prior search."),
+			"include_diagnostics":         boolSchema("Include safe query diagnostics when available."),
+			"allow_stale":                 boolSchema("Allow stale lexical index results."),
+			"candidate_count":             intSchema("Candidate count for lexical/semantic retrieval before fusion."),
+			"node_labels":                 arrayStringSchema("All listed node labels must be present."),
+			"node_ids":                    arrayStringSchema("Restrict candidates to these node IDs."),
+			"property_filters":            propertyFiltersSchema(),
+			"semantic_rule_id":            stringSchema("Hybrid mode: semantic rule ID to search."),
+			"embedding_binding_key":       stringSchema("Hybrid mode: embedding binding key. Requires semantic_rule_id when set."),
+			"min_score":                   numberSchema("Hybrid mode: optional semantic minimum score."),
+			"lexical_weight":              numberSchema("Hybrid mode lexical weight. Defaults to daemon policy."),
+			"semantic_weight":             numberSchema("Hybrid mode semantic weight. Defaults to daemon policy."),
+			"require_both":                boolSchema("Hybrid mode: require both lexical and semantic matches."),
+			"semantic_consistency":        enumStringSchema([]string{"strict", "read_your_writes", "bounded_stale", "best_effort"}, "Hybrid mode semantic projection consistency. Defaults to strict when omitted."),
+			"semantic_stale_behavior":     enumStringSchema([]string{"fail", "serve_last_good", "skip_channel"}, "Hybrid mode behavior when the current semantic projection is not ready."),
+			"min_required_graph_revision": intSchema("Hybrid semantic consistency: minimum graph revision required for read_your_writes or bounded-stale serving."),
+			"max_semantic_revision_lag":   intSchema("Hybrid semantic consistency: maximum acceptable semantic projection revision lag."),
+			"max_semantic_staleness":      stringSchema("Hybrid semantic consistency: maximum wall-clock staleness for last-good projections as a Go duration, for example 30s or 2m."),
 		}, []string{"query"}),
 		Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in args
@@ -812,6 +823,10 @@ func newSearchTool(a *app) tool {
 			if err != nil {
 				return nil, err
 			}
+			semanticConsistency, err := searchSemanticConsistencyPolicy(in.SemanticConsistency, in.SemanticStaleBehavior, in.MinRequiredGraphRevision, in.MaxSemanticRevisionLag, in.MaxSemanticStaleness)
+			if err != nil {
+				return nil, err
+			}
 			mode := strings.ToLower(strings.TrimSpace(in.Mode))
 			if mode == "" {
 				mode = "lexical"
@@ -827,9 +842,13 @@ func newSearchTool(a *app) tool {
 			}
 			switch mode {
 			case "lexical":
+				if semanticConsistency != nil {
+					return nil, errors.New("semantic consistency options require hybrid mode")
+				}
 				req.Mode = clientv1.SearchMode_SEARCH_MODE_LEXICAL
 				req.Lexical = &clientv1.LexicalSearchOptions{Query: &query, CandidateCount: in.CandidateCount}
 			case "hybrid":
+				req.SemanticConsistency = semanticConsistency
 				req.Mode = clientv1.SearchMode_SEARCH_MODE_HYBRID
 				req.Lexical = &clientv1.LexicalSearchOptions{Query: &query, CandidateCount: in.CandidateCount}
 				req.Semantic = &clientv1.SemanticSearchOptions{Query: &query, CandidateCount: in.CandidateCount, MinScore: in.MinScore}
@@ -892,6 +911,72 @@ func searchFilterOperator(value string) (clientv1.FilterOperator, error) {
 	default:
 		return clientv1.FilterOperator_FILTER_OPERATOR_UNSPECIFIED, fmt.Errorf("unsupported property filter operator %q", value)
 	}
+}
+
+func searchSemanticConsistencyPolicy(consistency, staleBehavior string, minRequiredGraphRevision, maxRevisionLag int64, maxStaleness string) (*clientv1.ProjectionConsistencyPolicy, error) {
+	if strings.TrimSpace(consistency) == "" && strings.TrimSpace(staleBehavior) == "" && minRequiredGraphRevision == 0 && maxRevisionLag == 0 && strings.TrimSpace(maxStaleness) == "" {
+		return nil, nil
+	}
+	if minRequiredGraphRevision < 0 || maxRevisionLag < 0 {
+		return nil, errors.New("semantic consistency revision bounds must not be negative")
+	}
+	if strings.TrimSpace(consistency) == "" {
+		return nil, errors.New("semantic_consistency is required when semantic consistency options are set")
+	}
+	policy := &clientv1.ProjectionConsistencyPolicy{MinRequiredGraphRevision: minRequiredGraphRevision, MaxRevisionLag: maxRevisionLag}
+	switch normalizeSearchOption(consistency) {
+	case "strict":
+		policy.Consistency = clientv1.ProjectionConsistency_PROJECTION_CONSISTENCY_STRICT
+	case "read_your_writes", "ryw":
+		policy.Consistency = clientv1.ProjectionConsistency_PROJECTION_CONSISTENCY_READ_YOUR_WRITES
+	case "bounded_stale":
+		policy.Consistency = clientv1.ProjectionConsistency_PROJECTION_CONSISTENCY_BOUNDED_STALE
+	case "best_effort":
+		policy.Consistency = clientv1.ProjectionConsistency_PROJECTION_CONSISTENCY_BEST_EFFORT
+	default:
+		return nil, fmt.Errorf("unsupported semantic_consistency %q", consistency)
+	}
+	if strings.TrimSpace(staleBehavior) != "" {
+		switch normalizeSearchOption(staleBehavior) {
+		case "fail":
+			policy.StaleBehavior = clientv1.StaleProjectionBehavior_STALE_PROJECTION_BEHAVIOR_FAIL
+		case "serve_last_good", "last_good":
+			policy.StaleBehavior = clientv1.StaleProjectionBehavior_STALE_PROJECTION_BEHAVIOR_SERVE_LAST_GOOD
+		case "skip_channel", "skip":
+			policy.StaleBehavior = clientv1.StaleProjectionBehavior_STALE_PROJECTION_BEHAVIOR_SKIP_CHANNEL
+		default:
+			return nil, fmt.Errorf("unsupported semantic_stale_behavior %q", staleBehavior)
+		}
+	}
+	if strings.TrimSpace(maxStaleness) != "" {
+		duration, err := time.ParseDuration(strings.TrimSpace(maxStaleness))
+		if err != nil {
+			return nil, fmt.Errorf("max_semantic_staleness must be a Go duration such as 30s or 2m: %w", err)
+		}
+		if duration < 0 {
+			return nil, errors.New("max_semantic_staleness must not be negative")
+		}
+		policy.MaxStaleness = durationpb.New(duration)
+	}
+	switch policy.Consistency {
+	case clientv1.ProjectionConsistency_PROJECTION_CONSISTENCY_STRICT:
+		if policy.StaleBehavior != clientv1.StaleProjectionBehavior_STALE_PROJECTION_BEHAVIOR_UNSPECIFIED && policy.StaleBehavior != clientv1.StaleProjectionBehavior_STALE_PROJECTION_BEHAVIOR_FAIL {
+			return nil, errors.New("strict semantic consistency requires semantic_stale_behavior=fail")
+		}
+	case clientv1.ProjectionConsistency_PROJECTION_CONSISTENCY_READ_YOUR_WRITES:
+		if policy.MinRequiredGraphRevision == 0 {
+			return nil, errors.New("read_your_writes semantic consistency requires min_required_graph_revision")
+		}
+	case clientv1.ProjectionConsistency_PROJECTION_CONSISTENCY_BOUNDED_STALE:
+		if policy.MaxRevisionLag == 0 && policy.MaxStaleness == nil {
+			return nil, errors.New("bounded_stale semantic consistency requires max_semantic_revision_lag or max_semantic_staleness")
+		}
+	}
+	return policy, nil
+}
+
+func normalizeSearchOption(value string) string {
+	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(value)), "-", "_")
 }
 
 func newSemanticSearchTool(a *app) tool {
