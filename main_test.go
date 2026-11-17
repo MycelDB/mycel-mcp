@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
+
+	clientv1 "github.com/myceldb/mycel-go-sdk/gen/go/mycel/client/v1"
 )
 
 func TestToolsListIncludesReadOnlyMVPTools(t *testing.T) {
@@ -33,6 +36,58 @@ func TestToolsListIncludesReadOnlyMVPTools(t *testing.T) {
 		if !seen[name] {
 			t.Fatalf("expected tool %s in tools/list", name)
 		}
+	}
+}
+
+func TestSearchToolSchemaExposesSemanticConsistencyInputs(t *testing.T) {
+	tool := newSearchTool(&app{cfg: config{MaxResults: defaultMaxResults}})
+	props, ok := tool.InputSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("search schema properties missing: %#v", tool.InputSchema)
+	}
+	for _, name := range []string{"semantic_consistency", "semantic_stale_behavior", "min_required_graph_revision", "max_semantic_revision_lag", "max_semantic_staleness"} {
+		if _, ok := props[name]; !ok {
+			t.Fatalf("mycel_search schema missing %s", name)
+		}
+	}
+}
+
+func TestSearchSemanticConsistencyPolicy(t *testing.T) {
+	if policy, err := searchSemanticConsistencyPolicy("", "", 0, 0, ""); err != nil || policy != nil {
+		t.Fatalf("empty policy = %#v, %v; want nil, nil", policy, err)
+	}
+	bounded, err := searchSemanticConsistencyPolicy("bounded-stale", "serve-last-good", 0, 25, "2m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bounded.Consistency != clientv1.ProjectionConsistency_PROJECTION_CONSISTENCY_BOUNDED_STALE || bounded.StaleBehavior != clientv1.StaleProjectionBehavior_STALE_PROJECTION_BEHAVIOR_SERVE_LAST_GOOD || bounded.MaxRevisionLag != 25 || bounded.MaxStaleness.AsDuration() != 2*time.Minute {
+		t.Fatalf("bounded policy = %#v", bounded)
+	}
+	bestEffort, err := searchSemanticConsistencyPolicy("best_effort", "skip_channel", 0, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bestEffort.Consistency != clientv1.ProjectionConsistency_PROJECTION_CONSISTENCY_BEST_EFFORT || bestEffort.StaleBehavior != clientv1.StaleProjectionBehavior_STALE_PROJECTION_BEHAVIOR_SKIP_CHANNEL {
+		t.Fatalf("best-effort policy = %#v", bestEffort)
+	}
+	for _, test := range []struct {
+		name                     string
+		consistency              string
+		staleBehavior            string
+		minRequiredGraphRevision int64
+		maxSemanticRevisionLag   int64
+		maxSemanticStaleness     string
+	}{
+		{name: "strict skip", consistency: "strict", staleBehavior: "skip_channel"},
+		{name: "bounded missing bound", consistency: "bounded_stale", staleBehavior: "serve_last_good"},
+		{name: "read your writes missing revision", consistency: "read_your_writes", staleBehavior: "serve_last_good"},
+		{name: "field without consistency", staleBehavior: "skip_channel"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := searchSemanticConsistencyPolicy(test.consistency, test.staleBehavior, test.minRequiredGraphRevision, test.maxSemanticRevisionLag, test.maxSemanticStaleness); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
 	}
 }
 

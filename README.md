@@ -13,6 +13,10 @@ This first version is intentionally **read-only**. It lets MCP clients use a run
 - Admin tools: not exposed in this first version.
 - Local UX: `login`, `logout`, `configure`, `doctor`, and `serve` commands.
 
+## Compatibility
+
+`mycel-mcp` is built against `github.com/myceldb/mycel-go-sdk v0.23.0` and is certified for the coordinated Mycel `v0.23.x` API/daemon line. Local workspace builds may use the sibling `../mycel-go-sdk` checkout, but the module dependency is pinned so external builds use the v0.23 SDK contract.
+
 ## Build
 
 From this directory:
@@ -131,7 +135,7 @@ For quick disposable local development, environment credentials still work:
 
 ### Search and semantic discovery
 
-- `mycel_search` — lexical or hybrid search.
+- `mycel_search` — lexical or hybrid search. Hybrid calls can optionally set v0.23 semantic projection consistency controls: `semantic_consistency` (`strict`, `read_your_writes`, `bounded_stale`, `best_effort`), `semantic_stale_behavior` (`fail`, `serve_last_good`, `skip_channel`), `min_required_graph_revision`, `max_semantic_revision_lag`, and `max_semantic_staleness` (Go duration such as `30s` or `2m`). Strict semantic consistency remains the default. Responses include daemon per-channel diagnostics when returned by v0.23 SearchService.
 - `mycel_semantic_search` — direct semantic search.
 - `mycel_list_semantic_rules`
 - `mycel_get_lexical_index_status`
