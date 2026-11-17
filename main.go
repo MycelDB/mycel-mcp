@@ -27,7 +27,7 @@ import (
 
 const (
 	serverName    = "mycel-mcp"
-	serverVersion = "0.1.0"
+	serverVersion = "0.23.0"
 
 	defaultProtocolVersion = "2024-11-05"
 	defaultMaxResults      = int32(25)
